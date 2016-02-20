@@ -35,12 +35,12 @@ cdef class Node:
             int i = 0
             int rc
             int total_used
-            char *cloud_str = ""
-            char *comp_str = ""
-            char *drain_str = ""
-            char *power_str = ""
-            uint16_t err_cpus = 0
-            uint16_t alloc_cpus = 0
+            char *cloud_str
+            char *comp_str
+            char *drain_str
+            char *power_str
+            uint16_t err_cpus
+            uint16_t alloc_cpus
             uint32_t alloc_memory
             uint32_t node_state
             dict node_info
@@ -55,6 +55,13 @@ cdef class Node:
             self._node_dict = {}
             for i in xrange(self._node_info_ptr.record_count):
                 node_info = {}
+                cloud_str = ""
+                comp_str = ""
+                drain_str = ""
+                power_str = ""
+                err_cpus = 0
+                alloc_cpus = 0
+
                 node_info["arch"] = strOrNone(self._node_info_ptr.node_array[i].arch)
                 node_info["boards"] = self._node_info_ptr.node_array[i].boards
                 node_info["boot_time"] = self._node_info_ptr.node_array[i].boot_time
@@ -67,8 +74,6 @@ cdef class Node:
                 total_used = self._node_info_ptr.node_array[i].cpus
 
                 node_info["cpu_spec_list"] = listOrNone(self._node_info_ptr.node_array[i].cpu_spec_list)
-                #node_info["ext_sensors"] = self._node_info_ptr.node_array[i].ext_sensors
-                #node_info["power"] = self._node_info_ptr.node_array[i].power
                 node_info["features"] = listOrNone(self._node_info_ptr.node_array[i].features)
                 node_info["gres"] = listOrNone(self._node_info_ptr.node_array[i].gres)
                 node_info["gres_drain"] = listOrNone(self._node_info_ptr.node_array[i].gres_drain)

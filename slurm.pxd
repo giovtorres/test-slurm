@@ -1115,145 +1115,16 @@ cdef inline void* xmalloc(size_t __sz):
 cdef inline xfree (void *__p):
     return slurm_xfree(<void**>&(__p), __FILE__, __LINE__, __FUNCTION__)
 
-#cdef extern char *rpc_num2string(uint16_t opcode)
-#cdef extern char *uid_to_string_cached(int uid)
-#cdef extern void uid_cache_clear()
-
 cdef inline IS_NODE_ALLOCATED(node_info_t _X):
     return (_X.node_state & NODE_STATE_BASE) == NODE_STATE_ALLOCATED
 
 cdef inline IS_NODE_COMPLETING(node_info_t _X):
     return (_X.node_state & NODE_STATE_COMPLETING)
 
+#cdef extern char *rpc_num2string(uint16_t opcode)
+#cdef extern char *uid_to_string_cached(int uid)
+#cdef extern void uid_cache_clear()
 
-
-cdef inline char *node_state_string(uint32_t inx):
-    cdef int base             = (inx & NODE_STATE_BASE)
-    cdef bint comp_flag       = (inx & NODE_STATE_COMPLETING)
-    cdef bint drain_flag      = (inx & NODE_STATE_DRAIN)
-    cdef bint fail_flag       = (inx & NODE_STATE_FAIL)
-    cdef bint maint_flag      = (inx & NODE_STATE_MAINT)
-    cdef bint net_flag        = (inx & NODE_STATE_NET)
-    cdef bint res_flag        = (inx & NODE_STATE_RES)
-    cdef bint resume_flag     = (inx & NODE_RESUME)
-    cdef bint no_resp_flag    = (inx & NODE_STATE_NO_RESPOND)
-    cdef bint power_down_flag = (inx & NODE_STATE_POWER_SAVE)
-    cdef bint power_up_flag   = (inx & NODE_STATE_POWER_UP)
-
-    if maint_flag:
-            if ((base == NODE_STATE_ALLOCATED) or
-                (base == NODE_STATE_MIXED)):
-                pass
-            elif no_resp_flag:
-                return "MAINT*"
-            else:
-                return "MAINT"
-
-    if drain_flag:
-        if (comp_flag
-            or (base == NODE_STATE_ALLOCATED)
-            or (base == NODE_STATE_MIXED)):
-            if no_resp_flag:
-                return "DRAINING*"
-            return "DRAINING"
-        elif base == NODE_STATE_ERROR:
-            if no_resp_flag:
-                return "ERROR*"
-            return "ERROR"
-        else:
-            if no_resp_flag:
-                return "DRAINED*"
-            return "DRAINED"
-
-    if fail_flag:
-        if comp_flag or (base == NODE_STATE_ALLOCATED):
-            if no_resp_flag:
-                return "FAILING*"
-            return "FAILING"
-        else:
-            if no_resp_flag:
-                return "FAIL*"
-            return "FAIL"
-
-    if inx == NODE_STATE_POWER_SAVE:
-        return "POWER_DOWN"
-
-    if inx == NODE_STATE_POWER_UP:
-        return "POWER_UP"
-    if base == NODE_STATE_DOWN:
-        if no_resp_flag:
-            return "DOWN*"
-        return "DOWN"
-
-    if base == NODE_STATE_ALLOCATED:
-        if maint_flag:
-            return "ALLOCATED$"
-        if power_up_flag:
-            return "ALLOCATED#"
-        if power_down_flag:
-            return "ALLOCATED~"
-        if no_resp_flag:
-            return "ALLOCATED*"
-        if comp_flag:
-            return "ALLOCATED+"
-        return "ALLOCATED"
-
-    if comp_flag:
-        if no_resp_flag:
-            return "COMPLETING*"
-        return "COMPLETING"
-
-    if base == NODE_STATE_IDLE:
-        if maint_flag:
-            return "IDLE$"
-        if power_up_flag:
-            return "IDLE#"
-        if power_down_flag:
-            return "IDLE~"
-        if no_resp_flag:
-            return "IDLE*"
-        if net_flag:
-            return "PERFCTRS"
-        if res_flag:
-            return "RESERVED"
-        return "IDLE"
-
-    if base == NODE_STATE_ERROR:
-        if maint_flag:
-            return "ERROR$"
-        if power_up_flag:
-            return "ERROR#"
-        if power_down_flag:
-            return "ERROR~"
-        if no_resp_flag:
-            return "ERROR*"
-        return "ERROR"
-
-    if base == NODE_STATE_MIXED:
-        if maint_flag:
-            return "MIXED$"
-        if power_up_flag:
-            return "MIXED#"
-        if power_down_flag:
-            return "MIXED~"
-        if no_resp_flag:
-            return "MIXED*"
-        return "MIXED"
-
-    if base == NODE_STATE_FUTURE:
-        if no_resp_flag:
-            return "FUTURE*"
-        return "FUTURE"
-
-    if resume_flag:
-        return "RESUME"
-
-    if base == NODE_STATE_UNKNOWN:
-        if no_resp_flag:
-            return "UNKNOWN*"
-        return "UNKNOWN"
-
-    return "?"
 
 #
 # slurm inline helper functions
