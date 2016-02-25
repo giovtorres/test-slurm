@@ -26,32 +26,24 @@ cdef extern from "Python.h":
     const char *__FILE__
     const char *__FUNCTION__
 
+
 include "slurm.pxi"
 
 #
 # Main Slurm API
 #
 
-cdef inline SLURM_VERSION_NUM(long a, long b, long c):
-    return (((a) << 16) + ((b) << 8) + (c))
-
-cdef inline SLURM_VERSION_MAJOR(long a):
-    return (((a) >> 16) & 0xff)
-
-cdef inline SLURM_VERSION_MINOR(long a):
-    return (((a) >> 8) & 0xff)
-
-cdef inline SLURM_VERSION_MICRO(long a):
-    return ((a) & 0xff)
-
-cdef inline SLURM_ID_HASH(uint32_t _jobid, uint32_t _stepid):
-    return <uint64_t>(<uint64_t>_stepid * SLURM_ID_HASH_NUM + _jobid)
-
-cdef inline SLURM_ID_HASH_JOB_ID(hash_id):
-    return <uint32_t>(hash_id % SLURM_ID_HASH_NUM)
-
-cdef inline SLURM_ID_HASH_STEP_ID(hash_id):
-    return <uint32_t>(hash_id / SLURM_ID_HASH_NUM)
+#cdef inline SLURM_VERSION_NUM(long a, long b, long c):
+#    return (((a) << 16) + ((b) << 8) + (c))
+#
+#cdef inline SLURM_VERSION_MAJOR(long a):
+#    return (((a) >> 16) & 0xff)
+#
+#cdef inline SLURM_VERSION_MINOR(long a):
+#    return (((a) >> 8) & 0xff)
+#
+#cdef inline SLURM_VERSION_MICRO(long a):
+#    return ((a) & 0xff)
 
 #cdef inline PARTITION_DOWN:
 #    return PARTITION_SUBMIT
@@ -67,18 +59,61 @@ cdef inline SLURM_ID_HASH_STEP_ID(hash_id):
 #
 
 cdef extern from "slurm/slurm.h" nogil:
+    
+    # DEFINITIONS FOR VERSION MANAGEMENT
+    long int SLURM_VERSION_NUMBER
+    int SLURM_VERSION_NUM(int a, int b, int c)
+    int SLURM_VERSION_MAJOR(int a)
+    int SLURM_VERSION_MINOR(int a)
+    int SLURM_VERSION_MICRO(int a)
 
     # DEFINITIONS FOR INPUT VALUES
+    long int INFINITE
+    long long int INFINITE64
+    long int NO_VAL
+    long long int NO_VAL64
     int MAX_TASKS_PER_NODE
+
+    long int SLURM_BATCH_SCRIPT
+    long int SLURM_EXTERN_CONT
+
     int DEFAULT_EIO_SHUTDOWN_WAIT
     long int SLURM_ID_HASH_NUM
 
-    int READY_JOB_FATAL
-    int READY_JOB_ERROR
-    int NICE_OFFSET
+    #SLURM_ID_HASH(uint32_t _jobid, uint32_t _stepid)
+
+    #SLURM_ID_HASH_JOB_ID(hash_id)
+
+    #SLURM_ID_HASH_STEP_ID(hash_id)
+
+    enum job_states:
+        JOB_PENDING
+        JOB_RUNNING
+        JOB_SUSPENDED
+        JOB_COMPLETE
+        JOB_CANCELLED
+        JOB_FAILED
+        JOB_TIMEOUT
+        JOB_NODE_FAIL
+        JOB_PREEMPTED
+        JOB_BOOT_FAIL
+        JOB_END
+
+    long int JOB_STATE_BASE
+    long int JOB_STATE_FLAGS
+
+    long int JOB_LAUNCH_FAILED
+    long int JOB_UPDATE_DB
+    long int JOB_REQUEUE
+    long int JOB_REQUEUE_HOLD
+    long int JOB_SPECIAL_EXIT
+    long int JOB_RESIZING
+    long int JOB_CONFIGURING
+    long int JOB_COMPLETING
+    long int JOB_STOPPED
 
     enum job_state_reason:
-        WAIT_NO_REASON = 0
+        WAIT_NO_REASON
         WAIT_PRIORITY
         WAIT_DEPENDENCY
         WAIT_RESOURCES
@@ -258,6 +293,10 @@ cdef extern from "slurm/slurm.h" nogil:
         SELECT_HTC_D
         SELECT_HTC_V
         SELECT_HTC_L     
+
+    int READY_JOB_FATAL
+    int READY_JOB_ERROR
+    int NICE_OFFSET
 
     enum node_use_type:
         SELECT_COPROCESSOR_MODE
@@ -656,7 +695,6 @@ cdef extern from "slurm/slurm.h" nogil:
         char *wckey
         char *work_dir
         
-    # double check this is the right syntax
     ctypedef slurm_job_info_t job_info_t
 
     ctypedef struct job_info_msg_t:
@@ -1108,6 +1146,8 @@ cdef extern void slurm_free_stats_response_msg (stats_info_response_msg_t *msg)
 cdef extern void *slurm_xmalloc(size_t, bool, const char *, int, const char *)
 cdef extern void slurm_xfree(void **, const char *, int, const char *)
 cdef extern char *slurm_node_state_string(uint32_t inx)
+cdef extern char *slurm_job_state_string(uint32_t inx)
+cdef extern char *slurm_job_reason_string(job_state_reason inx)
 
 cdef inline void* xmalloc(size_t __sz):
     return slurm_xmalloc(__sz, True,  __FILE__, __LINE__, __FUNCTION__)
@@ -1121,10 +1161,61 @@ cdef inline IS_NODE_ALLOCATED(node_info_t _X):
 cdef inline IS_NODE_COMPLETING(node_info_t _X):
     return (_X.node_state & NODE_STATE_COMPLETING)
 
-#cdef extern char *rpc_num2string(uint16_t opcode)
-#cdef extern char *uid_to_string_cached(int uid)
-#cdef extern void uid_cache_clear()
+#
+# Defined job states
+#
 
+cdef inline IS_JOB_PENDING(slurm_job_info_t _X):
+    return (_X.job_state & JOB_STATE_BASE) == JOB_PENDING
+
+cdef inline IS_JOB_RUNNING(slurm_job_info_t _X):
+    return (_X.job_state & JOB_STATE_BASE) == JOB_RUNNING
+
+cdef inline IS_JOB_SUSPENDED(slurm_job_info_t _X):
+    return (_X.job_state & JOB_STATE_BASE) == JOB_SUSPENDED
+
+cdef inline IS_JOB_COMPLETE(slurm_job_info_t _X):
+    return (_X.job_state & JOB_STATE_BASE) == JOB_COMPLETE
+
+cdef inline IS_JOB_CANCELLED(slurm_job_info_t _X):
+    return (_X.job_state & JOB_STATE_BASE) == JOB_CANCELLED
+
+cdef inline IS_JOB_FAILED(slurm_job_info_t _X):
+    return (_X.job_state & JOB_STATE_BASE) == JOB_FAILED
+
+cdef inline IS_JOB_TIMEOUT(slurm_job_info_t _X):
+    return (_X.job_state & JOB_STATE_BASE) == JOB_TIMEOUT
+
+cdef inline IS_JOB_NODE_FAILED(slurm_job_info_t _X):
+    return (_X.job_state & JOB_STATE_BASE) == JOB_NODE_FAIL
+
+#
+# Derived job states
+#
+
+cdef inline IS_JOB_COMPLETING(job_info_t _X):
+    return _X.job_state & JOB_COMPLETING
+
+cdef inline IS_JOB_CONFIGURING(job_info_t _X):
+    return _X.job_state & JOB_CONFIGURING
+
+cdef inline IS_JOB_STARTED(job_info_t _X):
+    return (_X.job_state & JOB_STATE_BASE) > JOB_PENDING
+
+cdef inline IS_JOB_FINISHED(job_info_t _X):
+    return (_X.job_state & JOB_STATE_BASE) > JOB_SUSPENDED
+
+cdef inline IS_JOB_COMPLETED(job_info_t _X):
+    return (IS_JOB_FINISHED(_X) and (_X.job_state & JOB_COMPLETING) == 0)
+
+cdef inline IS_JOB_RESIZING(job_info_t _X):
+    return _X.job_state & JOB_RESIZING
+
+cdef inline IS_JOB_REQUEUED(job_info_t _X):
+    return _X.job_state & JOB_REQUEUE
+
+cdef inline IS_JOB_UPDATE_DB(job_info_t _X):
+    return _X.job_state & JOB_UPDATE_DB
 
 #
 # slurm inline helper functions
@@ -1160,6 +1251,7 @@ cdef class Node:
         dict _node_dict
 
     cpdef get_node(self, char *_node=?)
+    cpdef get_nodes(self)
     cpdef update_node(self)
 
 cdef class Job:
@@ -1168,16 +1260,15 @@ cdef class Job:
         uint16_t _show_flags
         dict _job_dict
 
-    cpdef get_job(self, uint32_t _jobid)
+    cpdef get_job(self, uint32_t _jobid=?)
+    cpdef get_jobs(self)
 
 cdef class Conf:
     cdef:
         slurm_ctl_conf_t *_conf_info_msg_ptr
         dict _conf_dict
 
-    cpdef __destroy(self)
-    cpdef load_conf(self)
-    cpdef print_conf(self)
+    cpdef get(self)
 
 cdef class Stat:
     cdef:

@@ -1,26 +1,35 @@
 # cython: embedsignature=True
 # cython: profile=False
 
-from libc.stdint cimport uint16_t, uint32_t, uint64_t
+from libc.stdint cimport int64_t, uint16_t, uint32_t, uint64_t
 from libc.stdlib cimport free
+from grp import getgrgid
 from pwd import getpwuid
 
 cdef extern from "stdio.h":
     ctypedef struct FILE
-    cdef FILE *stdout
+    FILE *stdout
 
 cdef extern from "time.h":
     ctypedef long time_t
+    double difftime(time_t time1, time_t time2)
+    time_t time(time_t *t)
+
+cdef extern from "sys/wait.h":
+    int WIFSIGNALED (int status)
+    int WTERMSIG (int status)
+    int WEXITSTATUS (int status)
 
 include "slurm.pxi"
 
 cpdef api_version():
-    return (SLURM_VERSION_MAJOR(SLURM_VERSION_NUMBER), 
+    return (SLURM_VERSION_MAJOR(SLURM_VERSION_NUMBER),
             SLURM_VERSION_MINOR(SLURM_VERSION_NUMBER),
             SLURM_VERSION_MICRO(SLURM_VERSION_NUMBER))
 
 
 cdef class Node:
+    """src/api/node_info.c"""
 
     def __cinit__(self):
         self._node_info_ptr = NULL
@@ -30,9 +39,13 @@ cdef class Node:
         pass
 
 
+    cpdef get_nodes(self):
+        return self.get_node()
+
+
     cpdef get_node(self, char *_node=NULL):
         cdef:
-            int i = 0
+            int i
             int rc
             int total_used
             char *cloud_str
@@ -53,7 +66,7 @@ cdef class Node:
 
         if rc == SLURM_SUCCESS:
             self._node_dict = {}
-            for i in xrange(self._node_info_ptr.record_count):
+            for i in range(self._node_info_ptr.record_count):
                 node_info = {}
                 cloud_str = ""
                 comp_str = ""
@@ -62,6 +75,7 @@ cdef class Node:
                 err_cpus = 0
                 alloc_cpus = 0
 
+                # use strOrNone on all char *
                 node_info["arch"] = strOrNone(self._node_info_ptr.node_array[i].arch)
                 node_info["boards"] = self._node_info_ptr.node_array[i].boards
                 node_info["boot_time"] = self._node_info_ptr.node_array[i].boot_time
@@ -81,10 +95,10 @@ cdef class Node:
                 node_info["mem_spec_limit"] = self._node_info_ptr.node_array[i].mem_spec_limit
                 node_info["name"] = self._node_info_ptr.node_array[i].name
                 node_info["node_addr"] = self._node_info_ptr.node_array[i].node_addr
-                node_info["node_hostname"] = self._node_info_ptr.node_array[i].node_hostname
+                node_info["node_hostname"] = strOrNone(self._node_info_ptr.node_array[i].node_hostname)
 
-                node_info["os"] = self._node_info_ptr.node_array[i].os
-                
+                node_info["os"] = strOrNone(self._node_info_ptr.node_array[i].os)
+
                 if self._node_info_ptr.node_array[i].owner == NO_VAL:
                     node_info["owner"] = None
                 else:
@@ -126,7 +140,7 @@ cdef class Node:
                                           &alloc_cpus)
                 node_info["alloc_cpus"] = alloc_cpus
                 total_used -= alloc_cpus
-                
+ 
                 slurm_get_select_nodeinfo(self._node_info_ptr.node_array[i].select_nodeinfo,
                                           SELECT_NODEDATA_SUBCNT,
                                           NODE_STATE_ERROR,
@@ -165,7 +179,7 @@ cdef class Node:
                     node_info["current_watts"] = self._node_info_ptr.node_array[i].energy.current_watts
                     node_info["lowest_joules"] = self._node_info_ptr.node_array[i].energy.base_consumed_energy
                     node_info["consumed_joules"] = self._node_info_ptr.node_array[i].energy.consumed_energy
-                    
+
                 # External Sensors Line
                 if not self._node_info_ptr.node_array[i].ext_sensors:
                     node_info["ext_sensors_joules"] = None
@@ -216,7 +230,7 @@ cdef class Node:
 
 
 cdef class Job:
-
+    """src/api/job_info.c"""
     def __cinit__(self):
         self._job_info_ptr = NULL
         self._show_flags = 0
@@ -225,17 +239,197 @@ cdef class Job:
         pass
 
 
-    cpdef get_job(self, uint32_t _jobid):
-        cdef:
-#            int i
-            int rc
-#            dict node_info
+    cpdef get_jobs(self):
+        return self.get_job()
 
-        rc = slurm_load_job(&self._job_info_ptr, _jobid, SHOW_ALL)
+
+    cpdef get_job(self, uint32_t _jobid=-1):
+        cdef:
+            int i
+            int rc
+            char *host
+            char *group_name
+            char *nodelist
+            char *spec_name
+            char *user_name
+            time_t end_time
+            time_t run_time
+            uint16_t exit_status
+            uint16_t term_sig
+            uint32_t min_nodes
+            uint32_t max_nodes
+            dict job_info
+
+        if _jobid == -1:
+            rc = slurm_load_job(&self._job_info_ptr, _jobid, SHOW_ALL)
+        else:
+            rc = slurm_load_jobs(<time_t> NULL,
+                                 &self._job_info_ptr,
+                                 SHOW_ALL)
+
         if rc == SLURM_SUCCESS:
             self._job_dict = {}
+            exit_status = 0
+            term_sig = 0
+
+            for i in range(self._job_info_ptr.record_count):
+                job_info = {}
+
+                job_info["account"] = strOrNone(self._job_info_ptr.job_array[i].account)
+                job_info["alloc_node"] = self._job_info_ptr.job_array[i].alloc_node
+                job_info["alloc_sid"] = self._job_info_ptr.job_array[i].alloc_sid
+                # array_job_id
+                # array_task_str/array_task_id
+                job_info["batch_flag"] = self._job_info_ptr.job_array[i].batch_flag
+                job_info["batch_host"] = strOrNone(self._job_info_ptr.job_array[i].batch_host)
+
+                if self._job_info_ptr.job_array[i].boards_per_node == <uint16_t>NO_VAL:
+                    job_info["boards_per_node"] = "not_specified"
+                else:
+                    job_info["boards_per_node"] = self._job_info_ptr.job_array[i].boards_per_node
+
+                if self._job_info_ptr.job_array[i].cores_per_socket == <uint16_t>NO_VAL:
+                    job_info["cores_per_socket"] = "not_specified"
+                else:
+                    job_info["cores_per_socket"] = self._job_info_ptr.job_array[i].cores_per_socket
+
+                # core_spec
+                # thread_spec
+
+                job_info["dependency"] = strOrNone(self._job_info_ptr.job_array[i].dependency)
+                if WIFSIGNALED(self._job_info_ptr.job_array[i].derived_ec):
+                    term_sig = WTERMSIG(self._job_info_ptr.job_array[i].derived_ec)
+                else:
+                    term_sig = 0
+
+                exit_status = WEXITSTATUS(self._job_info_ptr.job_array[i].derived_ec)
+                job_info["derived_exit_code"] = str(exit_status) + ":" + str(term_sig)
+
+                job_info["eligible_time"] = self._job_info_ptr.job_array[i].eligible_time
+
+                if (self._job_info_ptr.job_array[i].time_limit == INFINITE and
+                    self._job_info_ptr.job_array[i].end_time > time(NULL)):
+                    job_info["end_time"] = "Unknown"
+                else:
+                    job_info["end_time"] = self._job_info_ptr.job_array[i].end_time
+
+
+                if WIFSIGNALED(self._job_info_ptr.job_array[i].exit_code):
+                    term_sig = WTERMSIG(self._job_info_ptr.job_array[i].exit_code)
+                exit_status = WEXITSTATUS(self._job_info_ptr.job_array[i].exit_code)
+                job_info["exc_nodelist"] = strOrNone(self._job_info_ptr.job_array[i].exc_nodes)
+                job_info["exit_code"] = str(exit_status) + ":" + str(term_sig)
+                job_info["job_id"] = self._job_info_ptr.job_array[i].job_id
+                job_info["job_state"] = slurm_job_state_string(self._job_info_ptr.job_array[i].job_state)
+                job_info["group_name"] = getgrgid(self._job_info_ptr.job_array[i].group_id)[0]
+                job_info["name"] = self._job_info_ptr.job_array[i].name
+                job_info["nodelist"] = strOrNone(self._job_info_ptr.job_array[i].nodes)
+                job_info["nice"] = (<int64_t>self._job_info_ptr.job_array[i].nice) - NICE_OFFSET
+
+                if self._job_info_ptr.job_array[i].ntasks_per_board == <uint16_t>NO_VAL:
+                    job_info["ntasks_per_board"] = "not_specified"
+                else:
+                    job_info["ntasks_per_board"] = self._job_info_ptr.job_array[i].ntasks_per_board
+
+                if self._job_info_ptr.job_array[i].ntasks_per_node == <uint16_t>NO_VAL:
+                    job_info["ntasks_per_node"] = "not_specified"
+                else:
+                    job_info["ntasks_per_node"] = self._job_info_ptr.job_array[i].ntasks_per_node
+
+                if (self._job_info_ptr.job_array[i].ntasks_per_core == <uint16_t>NO_VAL or self._job_info_ptr.job_array[i].ntasks_per_core == <uint16_t>INFINITE):
+                    job_info["ntasks_per_core"] = "not_specified"
+                else:
+                    job_info["ntasks_per_core"] = self._job_info_ptr.job_array[i].ntasks_per_core
+
+                if (self._job_info_ptr.job_array[i].ntasks_per_socket == <uint16_t>NO_VAL or self._job_info_ptr.job_array[i].ntasks_per_socket == <uint16_t>INFINITE):
+                    job_info["ntasks_per_socket"] = "not_specified"
+                else:
+                    job_info["ntasks_per_socket"] = self._job_info_ptr.job_array[i].ntasks_per_socket
+
+                job_info["qos"] = strOrNone(self._job_info_ptr.job_array[i].qos)
+                job_info["partition"] = self._job_info_ptr.job_array[i].partition
+
+                if self._job_info_ptr.job_array[i].preempt_time == 0:
+                    job_info["preempt_time"] = None
+                else:
+                    job_info["preempt_time"] = self._job_info_ptr.job_array[i].preempt_time
+
+                job_info["priority"] = self._job_info_ptr.job_array[i].priority
+
+                if self._job_info_ptr.job_array[i].state_desc:
+                    job_info["reason"] = self._job_info_ptr.job_array[i].state_desc.replace(" ", "_")
+                else:
+                    job_info["reason"] = slurm_job_reason_string(<job_state_reason>self._job_info_ptr.job_array[i].state_reason)
+
+                job_info["reboot"] = self._job_info_ptr.job_array[i].reboot
+
+                job_info["req_nodelist"] = strOrNone(self._job_info_ptr.job_array[i].req_nodes)
+                job_info["requeue"] = self._job_info_ptr.job_array[i].requeue
+                job_info["resize_time"] = self._job_info_ptr.job_array[i].resize_time
+                job_info["restarts"] = self._job_info_ptr.job_array[i].restart_cnt
+                if IS_JOB_PENDING(self._job_info_ptr.job_array[i]):
+                    run_time = 0
+                elif IS_JOB_SUSPENDED(self._job_info_ptr.job_array[i]):
+                    run_time = self._job_info_ptr.job_array[i].pre_sus_time
+                else:
+                    if (IS_JOB_RUNNING(self._job_info_ptr.job_array[i]) or
+                        self._job_info_ptr.job_array[i].end_time == 0):
+                        end_time = time(NULL)
+                    else:
+                        end_time = self._job_info_ptr.job_array[i].end_time
+
+                    if self._job_info_ptr.job_array[i].suspend_time:
+                        run_time = <time_t>difftime(end_time, ( self._job_info_ptr.job_array[i].suspend_time + self._job_info_ptr.job_array[i].pre_sus_time))
+                    else:
+                        run_time = <time_t>difftime(end_time, self._job_info_ptr.job_array[i].start_time)
+
+                job_info["runtime"] = run_time
+                job_info["sched_nodelist"] = strOrNone(self._job_info_ptr.job_array[i].sched_nodes)
+                job_info["secs_pre_suspend"] = self._job_info_ptr.job_array[i].pre_sus_time
+
+                if self._job_info_ptr.job_array[i].sockets_per_board == <uint16_t>NO_VAL:
+                    job_info["sockets_per_board"] = "not_specified"
+                else:
+                    job_info["sockets_per_board"] = self._job_info_ptr.job_array[i].sockets_per_board
+
+
+                if self._job_info_ptr.job_array[i].sockets_per_node == <uint16_t>NO_VAL:
+                    job_info["sockets_per_node"] = "not_specified"
+                else:
+                    job_info["sockets_per_node"] = self._job_info_ptr.job_array[i].sockets_per_node
+
+                job_info["start_time"] = self._job_info_ptr.job_array[i].start_time
+                job_info["submit_time"] = self._job_info_ptr.job_array[i].submit_time
+                if self._job_info_ptr.job_array[i].suspend_time:
+                    job_info["suspend_time"] = self._job_info_ptr.job_array[i].suspend_time
+                else:
+                    job_info["suspend_time"] = None
+
+                if self._job_info_ptr.job_array[i].threads_per_core == <uint16_t>NO_VAL:
+                    job_info["threads_per_core"] = "not_specified"
+                else:
+                    job_info["threads_per_core"] = self._job_info_ptr.job_array[i].threads_per_core
+
+                if self._job_info_ptr.job_array[i].time_limit == NO_VAL:
+                    job_info["time_limit"] = "Partition_Limit"
+                else:
+                    job_info["time_limit"] = self._job_info_ptr.job_array[i].time_limit
+
+                if self._job_info_ptr.job_array[i].time_min == 0:
+                    job_info["time_min"] = None
+                else:
+                    job_info["time_min"] = self._job_info_ptr.job_array[i].time_min
+
+                job_info["user_name"] = getpwuid(self._job_info_ptr.job_array[i].user_id)[0]
+
+
+
+                self._job_dict[self._job_info_ptr.job_array[i].job_id] = job_info
+
+            # Clean up
             slurm_free_job_info_msg(self._job_info_ptr)
             self._job_info_ptr = NULL
+            # The char*'s are xfree'd. valgrind doesn't show leaks, do i still need to do it??
             return self._job_dict
         else:
             slurm_perror("slurm_load_job error")
@@ -249,21 +443,39 @@ cdef class Conf:
         self._conf_dict = {}
 
     def __dealloc__(self):
-        self.__destroy()
+        pass
 
-    cpdef __destroy(self):
-        if self._conf_info_msg_ptr is not NULL:
-            slurm_free_ctl_conf(self._conf_info_msg_ptr)
-
-    cpdef load_conf(self):
+    cpdef get(self):
+        cdef int rc
         rc = slurm_load_ctl_conf(<time_t> NULL, &self._conf_info_msg_ptr)
-        if rc != SLURM_SUCCESS:
+        if rc == SLURM_SUCCESS:
+            self._conf_dict["last_update"] = self._conf_info_msg_ptr.last_update
+
+            self._conf_dict["accounting_storage_tres"] = listOrNone(self._conf_info_msg_ptr.accounting_storage_tres)
+            self._conf_dict["accounting_storage_enforce"] = self._conf_info_msg_ptr.accounting_storage_enforce
+            self._conf_dict["accounting_storage_backup_host"] = strOrNone(self._conf_info_msg_ptr.accounting_storage_backup_host)
+            self._conf_dict["accounting_storage_host"] = strOrNone(self._conf_info_msg_ptr.accounting_storage_host)
+            self._conf_dict["accounting_storage_loc"] = strOrNone(self._conf_info_msg_ptr.accounting_storage_loc)
+            self._conf_dict["accounting_storage_pass"] = strOrNone(self._conf_info_msg_ptr.accounting_storage_pass)
+            self._conf_dict["accounting_storage_port"] = self._conf_info_msg_ptr.accounting_storage_port
+            self._conf_dict["accounting_storage_type"] = strOrNone(self._conf_info_msg_ptr.accounting_storage_type)
+            self._conf_dict["accounting_storage_user"] = strOrNone(self._conf_info_msg_ptr.accounting_storage_user)
+            self._conf_dict["acctng_store_job_comment"] = self._conf_info_msg_ptr.acctng_store_job_comment
+
+#            #self._conf_dict["acct_gather_conf"] = self._conf_info_msg_ptr.acct_gather_conf
+#            self._conf_dict["acct_gather_energy_type"] = self._conf_info_msg_ptr.acct_gather_energy_type
+#            self._conf_dict["acct_gather_profile_type"] = self._conf_info_msg_ptr.acct_gather_profile_type
+#            self._conf_dict["acct_gather_infiniband_type"] = self._conf_info_msg_ptr.acct_gather_infiniband_type
+#            self._conf_dict["acct_gather_filesystem_type"] = self._conf_info_msg_ptr.acct_gather_filesystem_type
+
+            self._conf_dict["next_job_id"] = self._conf_info_msg_ptr.next_job_id
+
+            slurm_free_ctl_conf(self._conf_info_msg_ptr)
+            self._conf_info_msg_ptr = NULL
+            return self._conf_dict
+        else:
             slurm_perror("slurm_load_ctl_conf error")
             return
-
-    cpdef print_conf(self):
-        if self._conf_info_msg_ptr is not NULL:
-            slurm_print_ctl_conf (stdout, self._conf_info_msg_ptr)
 
 
 cdef class Stat:
@@ -323,9 +535,8 @@ cdef class Stat:
 
             rpc_type_stats = {}
 
-            for i in xrange(self._buf.rpc_type_size):
+            for i in range(self._buf.rpc_type_size):
                 rpc_type = self.__rpc_num2string(self._buf.rpc_type_id[i])
-                #rpc_type = rpc_num2string(self._buf.rpc_type_id[i])
                 rpc_type_stats[rpc_type] = {}
                 rpc_type_stats[rpc_type]["id"] = self._buf.rpc_type_id[i]
                 rpc_type_stats[rpc_type]["count"] = self._buf.rpc_type_cnt[i]
@@ -336,7 +547,7 @@ cdef class Stat:
 
             rpc_user_stats = {}
 
-            for i in xrange(self._buf.rpc_user_size):
+            for i in range(self._buf.rpc_user_size):
                 rpc_user = getpwuid(self._buf.rpc_user_id[i])[0]
                 rpc_user_stats[rpc_user] = {}
                 rpc_user_stats[rpc_user]["id"] = self._buf.rpc_user_id[i]
@@ -345,7 +556,7 @@ cdef class Stat:
                                                         self._buf.rpc_user_cnt[i])
                 rpc_user_stats[rpc_user]["total_time"] = self._buf.rpc_user_time[i]
             self._stat_dict["rpc_user_stats"] = rpc_user_stats
-                
+ 
             slurm_free_stats_response_msg(self._buf)
             return self._stat_dict
         else:
