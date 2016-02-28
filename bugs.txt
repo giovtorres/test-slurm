@@ -1,0 +1,10 @@
+1. [giovanni@sms local]$ sudo scontrol update nodename=c1 state=drain
+You must specify a reason when DOWNING or DRAINING a node. Request denied
+
+But, I can drain a node using the API without providing a reason.
+
+
+2. slurm_reset_statistics leaks memory
+
+
+3. slurm.get_nodes() leaks memory when slurmctld is stopped.  (not sure if this is SLURM or me.)

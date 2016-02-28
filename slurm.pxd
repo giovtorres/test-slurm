@@ -14,7 +14,6 @@ cdef extern from "Python.h":
     const char *__FILE__
     const char *__FUNCTION__
 
-
 include "slurm.pxi"
 
 #
@@ -593,7 +592,7 @@ cdef extern from "slurm/slurm.h" nogil:
 
     ctypedef struct job_resources_t:
         pass
-        
+
     ctypedef struct slurm_job_info_t:
         char *account
         char    *alloc_node
@@ -689,7 +688,7 @@ cdef extern from "slurm/slurm.h" nogil:
         uint32_t wait4switch
         char *wckey
         char *work_dir
-        
+
     ctypedef slurm_job_info_t job_info_t
 
     ctypedef struct job_info_msg_t:
@@ -699,6 +698,9 @@ cdef extern from "slurm/slurm.h" nogil:
 
     ctypedef struct job_desc_msg_t:
         pass
+
+    int STAT_COMMAND_RESET
+    int STAT_COMMAND_GET
 
     ctypedef struct stats_info_request_msg_t:
         uint16_t command_id
@@ -760,7 +762,7 @@ cdef extern from "slurm/slurm.h" nogil:
 
     int slurm_get_node_energy(char *host, uint16_t delta,
                               uint16_t *sensors_cnt,
-                              acct_gather_energy_t **energy)  
+                              acct_gather_energy_t **energy)
 
     void slurm_free_node_info_msg (node_info_msg_t *node_info_ptr)
     void slurm_init_update_node_msg(update_node_msg_t * update_node_msg)
@@ -1218,6 +1220,7 @@ cdef inline IS_JOB_UPDATE_DB(job_info_t _X):
 cdef class Node:
     cdef:
         node_info_msg_t *_node_info_ptr
+        update_node_msg_t update_node_msg
         uint16_t _show_flags
         dict _node_dict
 
@@ -1225,7 +1228,7 @@ cdef class Node:
     cpdef ids(self)
     cpdef get_node(self, char *_node=?)
     cpdef get_nodes(self)
-    cpdef update_node(self)
+    cpdef int update_node(self, dict _update_dict)
 
 cdef class Job:
     cdef:

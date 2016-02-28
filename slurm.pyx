@@ -1,7 +1,8 @@
 # cython: embedsignature=True
-# cython: profile=False
+# cython: c_string_type=unicode, c_string_encoding=utf8
+# cython: cdivision=True
 
-from __future__ import division, unicode_literals
+from __future__ import print_function, division, unicode_literals
 
 from libc.stdint cimport int64_t, uint16_t, uint32_t, uint64_t
 from libc.stdlib cimport free
@@ -273,8 +274,19 @@ cdef class Node:
             return
 
 
-    cpdef update_node(self):
-        pass
+    cpdef int update_node(self, dict _update_dict):
+        slurm_init_update_node_msg(&self.update_node_msg)
+
+
+        self.update_node_msg.node_names = _update_dict["node_names"]
+        self.update_node_msg.node_state = _update_dict["node_state"]
+
+        rc = slurm_update_node(&self.update_node_msg)
+
+        if rc == SLURM_SUCCESS:
+            return rc
+        else:
+            return -1
 
 
 cdef class Job:
