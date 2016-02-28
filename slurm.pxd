@@ -1,15 +1,3 @@
-########################################################
-# Declarations of SLURM C-Level constructs go here.    #
-#                                                      #
-# Definitions in this file are meant for compile-time  #
-# access, therefore only C-level declarations go here. #
-# No Python-only declarations, like def functions,     #
-# are allowed here and would result in a compile-time  #
-# error.  These Python-only declarations are           #
-# accessible at runtime and are declared and defined   #
-# inside the implementation file.                      #
-########################################################
-
 from libc.stdint cimport uint8_t, uint16_t, uint32_t, uint64_t
 from libc.stdint cimport int32_t
 from cpython cimport bool
@@ -59,7 +47,7 @@ include "slurm.pxi"
 #
 
 cdef extern from "slurm/slurm.h" nogil:
-    
+
     # DEFINITIONS FOR VERSION MANAGEMENT
     long int SLURM_VERSION_NUMBER
     int SLURM_VERSION_NUM(int a, int b, int c)
@@ -499,6 +487,11 @@ cdef extern from "slurm/slurm.h" nogil:
     int OPEN_MODE_TRUNCATE
     int SLURM_SSL_SIGNATURE_LENGTH
 
+    int SHOW_ALL
+    int SHOW_DETAIL
+    int SHOW_DETAIL2
+    int SHOW_MIXED
+
     enum ctx_keys:
         SLURM_STEP_CTX_STEPID
         SLURM_STEP_CTX_TASKS
@@ -511,6 +504,8 @@ cdef extern from "slurm/slurm.h" nogil:
         SLURM_STEP_CTX_JOBID
         SLURM_STEP_CTX_USER_MANAGED_SOCKETS
 
+    long int MEM_PER_CPU
+    int SHARED_FORCE
 
     # PROTOCOL DATA STRUCTURE DEFINITIONS
     ctypedef struct dynamic_plugin_data_t:
@@ -788,7 +783,7 @@ cdef extern from "slurm/slurm.h" nogil:
     int slurm_load_job_user (job_info_msg_t **job_info_msg_pptr,
                              uint32_t user_id,
                              uint16_t show_flags)
-    
+
     int slurm_load_jobs (time_t update_time,
                          job_info_msg_t **job_info_msg_pptr,
                          uint16_t show_flags)
@@ -835,7 +830,6 @@ cdef extern from "slurm/slurm.h" nogil:
                                    node_states state,
                                    void *data)
 
-    
     ctypedef struct partition_info_msg_t:
         time_t last_update
         uint32_t record_count
@@ -1127,8 +1121,8 @@ cdef extern from "slurm/slurm_errno.h" nogil:
         SLURM_PROTOCOL_SOCKET_IMPL_ZERO_RECV_LENGTH = 5000
         SLURM_PROTOCOL_SOCKET_IMPL_NEGATIVE_RECV_LENGTH
         SLURM_PROTOCOL_SOCKET_IMPL_NOT_ALL_DATA_SENT
-        ESLURM_PROTOCOL_INCOMPLETE_PACKET 
-        SLURM_PROTOCOL_SOCKET_IMPL_TIMEOUT 
+        ESLURM_PROTOCOL_INCOMPLETE_PACKET
+        SLURM_PROTOCOL_SOCKET_IMPL_TIMEOUT
         SLURM_PROTOCOL_SOCKET_ZERO_BYTES_SENT
 
 
@@ -1149,11 +1143,11 @@ cdef extern char *slurm_node_state_string(uint32_t inx)
 cdef extern char *slurm_job_state_string(uint32_t inx)
 cdef extern char *slurm_job_reason_string(job_state_reason inx)
 
-cdef inline void* xmalloc(size_t __sz):
-    return slurm_xmalloc(__sz, True,  __FILE__, __LINE__, __FUNCTION__)
-
-cdef inline xfree (void *__p):
-    return slurm_xfree(<void**>&(__p), __FILE__, __LINE__, __FUNCTION__)
+#cdef inline void* xmalloc(size_t __sz):
+#    return slurm_xmalloc(__sz, True,  __FILE__, __LINE__, __FUNCTION__)
+#
+#cdef inline xfree (void *__p):
+#    return slurm_xfree(<void**>&(__p), __FILE__, __LINE__, __FUNCTION__)
 
 cdef inline IS_NODE_ALLOCATED(node_info_t _X):
     return (_X.node_state & NODE_STATE_BASE) == NODE_STATE_ALLOCATED
@@ -1218,29 +1212,6 @@ cdef inline IS_JOB_UPDATE_DB(job_info_t _X):
     return _X.job_state & JOB_UPDATE_DB
 
 #
-# slurm inline helper functions
-#
-
-cdef inline listOrNone(char* value):
-    if value is NULL:
-        return None
-    else:
-        return value.split(",")
-
-cdef inline strOrNone(char* value):
-    if value is NULL:
-        return None
-    else:
-        return value
-
-cdef inline dictOrNone(char* value):
-    if value is NULL:
-        return None
-    else:
-        # 'tres_fmt_str': 'cpu=1,mem=1',
-        return value
-
-#
 # slurm cython module c-level declarations
 #
 
@@ -1250,6 +1221,8 @@ cdef class Node:
         uint16_t _show_flags
         dict _node_dict
 
+    cpdef find_id(self, char *_node)
+    cpdef ids(self)
     cpdef get_node(self, char *_node=?)
     cpdef get_nodes(self)
     cpdef update_node(self)

@@ -1,6 +1,8 @@
 # cython: embedsignature=True
 # cython: profile=False
 
+from __future__ import division, unicode_literals
+
 from libc.stdint cimport int64_t, uint16_t, uint32_t, uint64_t
 from libc.stdlib cimport free
 from grp import getgrgid
@@ -27,6 +29,29 @@ cpdef api_version():
             SLURM_VERSION_MINOR(SLURM_VERSION_NUMBER),
             SLURM_VERSION_MICRO(SLURM_VERSION_NUMBER))
 
+#
+# slurm inline helper functions
+#
+
+cdef inline listOrNone(char* value):
+    if value is NULL:
+        return None
+    else:
+        return value.split(",")
+
+cdef inline strOrNone(char* value):
+    if value is NULL:
+        return None
+    else:
+        return value
+
+cdef inline dictOrNone(char* value):
+    if value is NULL:
+        return None
+    else:
+        # 'tres_fmt_str': 'cpu=1,mem=1',
+        return value
+
 
 cdef class Node:
     """src/api/node_info.c"""
@@ -39,13 +64,35 @@ cdef class Node:
         pass
 
 
+    cpdef find_id(self, char *_node):
+        return self.get_node(_node)
+
+
+    cpdef ids(self):
+        cdef:
+            int rc
+            uint32_t i
+            list _all_nodes
+
+        rc = slurm_load_node(<time_t> NULL, &self._node_info_ptr, SHOW_ALL)
+
+        if rc == SLURM_SUCCESS:
+            _all_nodes = []
+            for i in range(self._node_info_ptr.record_count):
+                _all_nodes.append(self._node_info_ptr.node_array[i].name)
+            slurm_free_node_info_msg(self._node_info_ptr)
+            self._node_info_ptr = NULL
+            return _all_nodes
+        else:
+            return 1
+
+
     cpdef get_nodes(self):
         return self.get_node()
 
 
     cpdef get_node(self, char *_node=NULL):
         cdef:
-            int i
             int rc
             int total_used
             char *cloud_str
@@ -54,6 +101,7 @@ cdef class Node:
             char *power_str
             uint16_t err_cpus
             uint16_t alloc_cpus
+            uint32_t i
             uint32_t alloc_memory
             uint32_t node_state
             dict node_info
@@ -81,7 +129,7 @@ cdef class Node:
                 node_info["boot_time"] = self._node_info_ptr.node_array[i].boot_time
                 node_info["cores"] = self._node_info_ptr.node_array[i].cores
                 node_info["core_spec_cnt"] = self._node_info_ptr.node_array[i].core_spec_cnt
-                node_info["cpu_load"] = (self._node_info_ptr.node_array[i].cpu_load / 100.0)
+                node_info["cpu_load"] = (self._node_info_ptr.node_array[i].cpu_load / 100)
                 node_info["free_mem"] = self._node_info_ptr.node_array[i].free_mem
 
                 node_info["cpus"] = self._node_info_ptr.node_array[i].cpus
@@ -140,7 +188,7 @@ cdef class Node:
                                           &alloc_cpus)
                 node_info["alloc_cpus"] = alloc_cpus
                 total_used -= alloc_cpus
- 
+
                 slurm_get_select_nodeinfo(self._node_info_ptr.node_array[i].select_nodeinfo,
                                           SELECT_NODEDATA_SUBCNT,
                                           NODE_STATE_ERROR,
@@ -245,7 +293,6 @@ cdef class Job:
 
     cpdef get_job(self, uint32_t _jobid=-1):
         cdef:
-            int i
             int rc
             char *host
             char *group_name
@@ -256,6 +303,7 @@ cdef class Job:
             time_t run_time
             uint16_t exit_status
             uint16_t term_sig
+            uint32_t i
             uint32_t min_nodes
             uint32_t max_nodes
             dict job_info
@@ -319,9 +367,24 @@ cdef class Job:
                 exit_status = WEXITSTATUS(self._job_info_ptr.job_array[i].exit_code)
                 job_info["exc_nodelist"] = strOrNone(self._job_info_ptr.job_array[i].exc_nodes)
                 job_info["exit_code"] = str(exit_status) + ":" + str(term_sig)
+                job_info["features"] = listOrNone(self._job_info_ptr.job_array[i].features)
+                job_info["gres"] = listOrNone(self._job_info_ptr.job_array[i].gres)
                 job_info["job_id"] = self._job_info_ptr.job_array[i].job_id
                 job_info["job_state"] = slurm_job_state_string(self._job_info_ptr.job_array[i].job_state)
                 job_info["group_name"] = getgrgid(self._job_info_ptr.job_array[i].group_id)[0]
+
+                if self._job_info_ptr.job_array[i].pn_min_memory & MEM_PER_CPU:
+                    self._job_info_ptr.job_array[i].pn_min_memory &= (~MEM_PER_CPU)
+                    job_info["mem_per_cpu"] = True
+                    job_info["mem_per_node"] = False
+                else:
+                    job_info["mem_per_cpu"] = False
+                    job_info["mem_per_node"] = True
+
+                job_info["min_memory"] = self._job_info_ptr.job_array[i].pn_min_memory
+                job_info["min_cpus_node"] = self._job_info_ptr.job_array[i].pn_min_cpus
+                job_info["min_tmp_disk_node"] = self._job_info_ptr.job_array[i].pn_min_tmp_disk
+
                 job_info["name"] = self._job_info_ptr.job_array[i].name
                 job_info["nodelist"] = strOrNone(self._job_info_ptr.job_array[i].nodes)
                 job_info["nice"] = (<int64_t>self._job_info_ptr.job_array[i].nice) - NICE_OFFSET
@@ -383,6 +446,7 @@ cdef class Job:
                     else:
                         run_time = <time_t>difftime(end_time, self._job_info_ptr.job_array[i].start_time)
 
+                job_info["reservation"] = strOrNone(self._job_info_ptr.job_array[i].resv_name)
                 job_info["runtime"] = run_time
                 job_info["sched_nodelist"] = strOrNone(self._job_info_ptr.job_array[i].sched_nodes)
                 job_info["secs_pre_suspend"] = self._job_info_ptr.job_array[i].pre_sus_time
@@ -488,8 +552,8 @@ cdef class Stat:
 
     cpdef get_stats(self):
         cdef:
-            int i
             int rc
+            uint32_t i
             dict rpc_type_stats
             dict rpc_user_stats
 
@@ -540,9 +604,9 @@ cdef class Stat:
                 rpc_type_stats[rpc_type] = {}
                 rpc_type_stats[rpc_type]["id"] = self._buf.rpc_type_id[i]
                 rpc_type_stats[rpc_type]["count"] = self._buf.rpc_type_cnt[i]
-                rpc_type_stats[rpc_type]["ave_time"] = (self._buf.rpc_type_time[i] /
+                rpc_type_stats[rpc_type]["ave_time"] = int(self._buf.rpc_type_time[i] //
                                                         self._buf.rpc_type_cnt[i])
-                rpc_type_stats[rpc_type]["total_time"] = self._buf.rpc_type_time[i]
+                rpc_type_stats[rpc_type]["total_time"] = int(self._buf.rpc_type_time[i])
             self._stat_dict["rpc_type_stats"] = rpc_type_stats
 
             rpc_user_stats = {}
@@ -552,11 +616,11 @@ cdef class Stat:
                 rpc_user_stats[rpc_user] = {}
                 rpc_user_stats[rpc_user]["id"] = self._buf.rpc_user_id[i]
                 rpc_user_stats[rpc_user]["count"] = self._buf.rpc_user_cnt[i]
-                rpc_user_stats[rpc_user]["ave_time"] = (self._buf.rpc_user_time[i] /
+                rpc_user_stats[rpc_user]["ave_time"] = int(self._buf.rpc_user_time[i] //
                                                         self._buf.rpc_user_cnt[i])
-                rpc_user_stats[rpc_user]["total_time"] = self._buf.rpc_user_time[i]
+                rpc_user_stats[rpc_user]["total_time"] = int(self._buf.rpc_user_time[i])
             self._stat_dict["rpc_user_stats"] = rpc_user_stats
- 
+
             slurm_free_stats_response_msg(self._buf)
             return self._stat_dict
         else:
