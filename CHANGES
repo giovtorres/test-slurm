@@ -9,9 +9,11 @@ General
 - single namespace
 - declare cpdef functions in .pxd file
 - change all 0's to SLURM_SUCCESS
+- change strOrNone to return None instead of [] or {}
 
 
 Node
 ====
 
 - remove global slurm_update_node and put in node class
+- node features as a list of strings

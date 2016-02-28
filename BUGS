@@ -2,6 +2,8 @@
 You must specify a reason when DOWNING or DRAINING a node. Request denied
 
 But, I can drain a node using the API without providing a reason.
+See commit e7c61bddb7d975a764490e529af013415d4afe84 in slurm-15-08-0-0-pre3
+src/scontrol/update_node.c
 
 
 2. slurm_reset_statistics leaks memory
