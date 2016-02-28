@@ -300,10 +300,10 @@ cdef class Job:
 
 
     cpdef get_jobs(self):
-        return self.get_job()
+        return self.get_job(NO_VAL)
 
 
-    cpdef get_job(self, uint32_t _jobid=-1):
+    cpdef get_job(self, uint32_t jobid):
         cdef:
             int rc
             char *host
@@ -311,6 +311,7 @@ cdef class Job:
             char *nodelist
             char *spec_name
             char *user_name
+            char tmp_line[1024 * 128]
             time_t end_time
             time_t run_time
             uint16_t exit_status
@@ -318,14 +319,16 @@ cdef class Job:
             uint32_t i
             uint32_t min_nodes
             uint32_t max_nodes
+            job_info_t *job_array
+            slurm_job_info_t *record
             dict job_info
 
-        if _jobid == -1:
-            rc = slurm_load_job(&self._job_info_ptr, _jobid, SHOW_ALL)
-        else:
+        if jobid == NO_VAL:
             rc = slurm_load_jobs(<time_t> NULL,
                                  &self._job_info_ptr,
                                  SHOW_ALL)
+        else:
+            rc = slurm_load_job(&self._job_info_ptr, jobid, SHOW_ALL)
 
         if rc == SLURM_SUCCESS:
             self._job_dict = {}
@@ -333,174 +336,215 @@ cdef class Job:
             term_sig = 0
 
             for i in range(self._job_info_ptr.record_count):
+                record = &self._job_info_ptr.job_array[i]
                 job_info = {}
-
-                job_info["account"] = strOrNone(self._job_info_ptr.job_array[i].account)
-                job_info["alloc_node"] = self._job_info_ptr.job_array[i].alloc_node
-                job_info["alloc_sid"] = self._job_info_ptr.job_array[i].alloc_sid
+                job_info["account"] = strOrNone(record.account)
+                job_info["alloc_node"] = record.alloc_node
+                job_info["alloc_sid"] = record.alloc_sid
                 # array_job_id
                 # array_task_str/array_task_id
-                job_info["batch_flag"] = self._job_info_ptr.job_array[i].batch_flag
-                job_info["batch_host"] = strOrNone(self._job_info_ptr.job_array[i].batch_host)
+                job_info["batch_flag"] = record.batch_flag
+                job_info["batch_host"] = strOrNone(record.batch_host)
 
-                if self._job_info_ptr.job_array[i].boards_per_node == <uint16_t>NO_VAL:
+                if record.boards_per_node == <uint16_t>NO_VAL:
                     job_info["boards_per_node"] = "not_specified"
                 else:
-                    job_info["boards_per_node"] = self._job_info_ptr.job_array[i].boards_per_node
+                    job_info["boards_per_node"] = record.boards_per_node
 
-                if self._job_info_ptr.job_array[i].cores_per_socket == <uint16_t>NO_VAL:
+                job_info["command"] = strOrNone(record.command)
+                job_info["comment"] = strOrNone(record.comment)
+                job_info["contiguous"] = record.contiguous
+
+                if record.cores_per_socket == <uint16_t>NO_VAL:
                     job_info["cores_per_socket"] = "not_specified"
                 else:
-                    job_info["cores_per_socket"] = self._job_info_ptr.job_array[i].cores_per_socket
+                    job_info["cores_per_socket"] = record.cores_per_socket
 
                 # core_spec
                 # thread_spec
 
-                job_info["dependency"] = strOrNone(self._job_info_ptr.job_array[i].dependency)
-                if WIFSIGNALED(self._job_info_ptr.job_array[i].derived_ec):
-                    term_sig = WTERMSIG(self._job_info_ptr.job_array[i].derived_ec)
+                job_info["dependency"] = strOrNone(record.dependency)
+                if WIFSIGNALED(record.derived_ec):
+                    term_sig = WTERMSIG(record.derived_ec)
                 else:
                     term_sig = 0
 
-                exit_status = WEXITSTATUS(self._job_info_ptr.job_array[i].derived_ec)
+                exit_status = WEXITSTATUS(record.derived_ec)
                 job_info["derived_exit_code"] = str(exit_status) + ":" + str(term_sig)
 
-                job_info["eligible_time"] = self._job_info_ptr.job_array[i].eligible_time
+                job_info["eligible_time"] = record.eligible_time
 
-                if (self._job_info_ptr.job_array[i].time_limit == INFINITE and
-                    self._job_info_ptr.job_array[i].end_time > time(NULL)):
+                if (record.time_limit == INFINITE and
+                    record.end_time > time(NULL)):
                     job_info["end_time"] = "Unknown"
                 else:
-                    job_info["end_time"] = self._job_info_ptr.job_array[i].end_time
+                    job_info["end_time"] = record.end_time
 
 
-                if WIFSIGNALED(self._job_info_ptr.job_array[i].exit_code):
-                    term_sig = WTERMSIG(self._job_info_ptr.job_array[i].exit_code)
-                exit_status = WEXITSTATUS(self._job_info_ptr.job_array[i].exit_code)
-                job_info["exc_nodelist"] = strOrNone(self._job_info_ptr.job_array[i].exc_nodes)
+                if WIFSIGNALED(record.exit_code):
+                    term_sig = WTERMSIG(record.exit_code)
+                exit_status = WEXITSTATUS(record.exit_code)
+                job_info["exc_nodelist"] = strOrNone(record.exc_nodes)
                 job_info["exit_code"] = str(exit_status) + ":" + str(term_sig)
-                job_info["features"] = listOrNone(self._job_info_ptr.job_array[i].features)
-                job_info["gres"] = listOrNone(self._job_info_ptr.job_array[i].gres)
-                job_info["job_id"] = self._job_info_ptr.job_array[i].job_id
-                job_info["job_state"] = slurm_job_state_string(self._job_info_ptr.job_array[i].job_state)
-                job_info["group_name"] = getgrgid(self._job_info_ptr.job_array[i].group_id)[0]
+                job_info["features"] = listOrNone(record.features)
+                job_info["gres"] = listOrNone(record.gres)
+                job_info["group_name"] = getgrgid(record.group_id)[0]
+                job_info["job_id"] = record.job_id
+                job_info["job_state"] = slurm_job_state_string(record.job_state)
+                job_info["licenses"] = listOrNone(record.licenses)
 
-                if self._job_info_ptr.job_array[i].pn_min_memory & MEM_PER_CPU:
-                    self._job_info_ptr.job_array[i].pn_min_memory &= (~MEM_PER_CPU)
+                if record.pn_min_memory & MEM_PER_CPU:
+                    record.pn_min_memory &= (~MEM_PER_CPU)
                     job_info["mem_per_cpu"] = True
                     job_info["mem_per_node"] = False
                 else:
                     job_info["mem_per_cpu"] = False
                     job_info["mem_per_node"] = True
 
-                job_info["min_memory"] = self._job_info_ptr.job_array[i].pn_min_memory
-                job_info["min_cpus_node"] = self._job_info_ptr.job_array[i].pn_min_cpus
-                job_info["min_tmp_disk_node"] = self._job_info_ptr.job_array[i].pn_min_tmp_disk
+                job_info["min_memory"] = record.pn_min_memory
+                job_info["min_cpus_node"] = record.pn_min_cpus
+                job_info["min_tmp_disk_node"] = record.pn_min_tmp_disk
 
-                job_info["name"] = self._job_info_ptr.job_array[i].name
-                job_info["nodelist"] = strOrNone(self._job_info_ptr.job_array[i].nodes)
-                job_info["nice"] = (<int64_t>self._job_info_ptr.job_array[i].nice) - NICE_OFFSET
+                job_info["name"] = strOrNone(record.name)
+                job_info["network"] = strOrNone(record.network)
+                job_info["nodelist"] = strOrNone(record.nodes)
+                job_info["nice"] = (<int64_t>record.nice) - NICE_OFFSET
 
-                if self._job_info_ptr.job_array[i].ntasks_per_board == <uint16_t>NO_VAL:
+                if record.ntasks_per_board == <uint16_t>NO_VAL:
                     job_info["ntasks_per_board"] = "not_specified"
                 else:
-                    job_info["ntasks_per_board"] = self._job_info_ptr.job_array[i].ntasks_per_board
+                    job_info["ntasks_per_board"] = record.ntasks_per_board
 
-                if self._job_info_ptr.job_array[i].ntasks_per_node == <uint16_t>NO_VAL:
+                if record.ntasks_per_node == <uint16_t>NO_VAL:
                     job_info["ntasks_per_node"] = "not_specified"
                 else:
-                    job_info["ntasks_per_node"] = self._job_info_ptr.job_array[i].ntasks_per_node
+                    job_info["ntasks_per_node"] = record.ntasks_per_node
 
-                if (self._job_info_ptr.job_array[i].ntasks_per_core == <uint16_t>NO_VAL or self._job_info_ptr.job_array[i].ntasks_per_core == <uint16_t>INFINITE):
+                if (record.ntasks_per_core == <uint16_t>NO_VAL or record.ntasks_per_core == <uint16_t>INFINITE):
                     job_info["ntasks_per_core"] = "not_specified"
                 else:
-                    job_info["ntasks_per_core"] = self._job_info_ptr.job_array[i].ntasks_per_core
+                    job_info["ntasks_per_core"] = record.ntasks_per_core
 
-                if (self._job_info_ptr.job_array[i].ntasks_per_socket == <uint16_t>NO_VAL or self._job_info_ptr.job_array[i].ntasks_per_socket == <uint16_t>INFINITE):
+                if (record.ntasks_per_socket == <uint16_t>NO_VAL or record.ntasks_per_socket == <uint16_t>INFINITE):
                     job_info["ntasks_per_socket"] = "not_specified"
                 else:
-                    job_info["ntasks_per_socket"] = self._job_info_ptr.job_array[i].ntasks_per_socket
+                    job_info["ntasks_per_socket"] = record.ntasks_per_socket
 
-                job_info["qos"] = strOrNone(self._job_info_ptr.job_array[i].qos)
-                job_info["partition"] = self._job_info_ptr.job_array[i].partition
+                job_info["qos"] = strOrNone(record.qos)
+                job_info["partition"] = record.partition
 
-                if self._job_info_ptr.job_array[i].preempt_time == 0:
+                if record.preempt_time == 0:
                     job_info["preempt_time"] = None
                 else:
-                    job_info["preempt_time"] = self._job_info_ptr.job_array[i].preempt_time
+                    job_info["preempt_time"] = record.preempt_time
 
-                job_info["priority"] = self._job_info_ptr.job_array[i].priority
+                job_info["priority"] = record.priority
 
-                if self._job_info_ptr.job_array[i].state_desc:
-                    job_info["reason"] = self._job_info_ptr.job_array[i].state_desc.replace(" ", "_")
+                if record.state_desc:
+                    job_info["reason"] = record.state_desc.replace(" ", "_")
                 else:
-                    job_info["reason"] = slurm_job_reason_string(<job_state_reason>self._job_info_ptr.job_array[i].state_reason)
+                    job_info["reason"] = slurm_job_reason_string(<job_state_reason>record.state_reason)
 
-                job_info["reboot"] = self._job_info_ptr.job_array[i].reboot
+                job_info["reboot"] = record.reboot
 
-                job_info["req_nodelist"] = strOrNone(self._job_info_ptr.job_array[i].req_nodes)
-                job_info["requeue"] = self._job_info_ptr.job_array[i].requeue
-                job_info["resize_time"] = self._job_info_ptr.job_array[i].resize_time
-                job_info["restarts"] = self._job_info_ptr.job_array[i].restart_cnt
+                job_info["req_nodelist"] = strOrNone(record.req_nodes)
+                job_info["requeue"] = record.requeue
+                job_info["resize_time"] = record.resize_time
+                job_info["restarts"] = record.restart_cnt
                 if IS_JOB_PENDING(self._job_info_ptr.job_array[i]):
                     run_time = 0
                 elif IS_JOB_SUSPENDED(self._job_info_ptr.job_array[i]):
-                    run_time = self._job_info_ptr.job_array[i].pre_sus_time
+                    run_time = record.pre_sus_time
                 else:
                     if (IS_JOB_RUNNING(self._job_info_ptr.job_array[i]) or
-                        self._job_info_ptr.job_array[i].end_time == 0):
+                        record.end_time == 0):
                         end_time = time(NULL)
                     else:
-                        end_time = self._job_info_ptr.job_array[i].end_time
+                        end_time = record.end_time
 
-                    if self._job_info_ptr.job_array[i].suspend_time:
-                        run_time = <time_t>difftime(end_time, ( self._job_info_ptr.job_array[i].suspend_time + self._job_info_ptr.job_array[i].pre_sus_time))
+                    if record.suspend_time:
+                        run_time = <time_t>difftime(end_time, ( record.suspend_time + record.pre_sus_time))
                     else:
-                        run_time = <time_t>difftime(end_time, self._job_info_ptr.job_array[i].start_time)
+                        run_time = <time_t>difftime(end_time, record.start_time)
 
-                job_info["reservation"] = strOrNone(self._job_info_ptr.job_array[i].resv_name)
+                job_info["reservation"] = strOrNone(record.resv_name)
                 job_info["runtime"] = run_time
-                job_info["sched_nodelist"] = strOrNone(self._job_info_ptr.job_array[i].sched_nodes)
-                job_info["secs_pre_suspend"] = self._job_info_ptr.job_array[i].pre_sus_time
+                job_info["sched_nodelist"] = strOrNone(record.sched_nodes)
+                job_info["secs_pre_suspend"] = record.pre_sus_time
 
-                if self._job_info_ptr.job_array[i].sockets_per_board == <uint16_t>NO_VAL:
+                if record.shared == 0:
+                    job_info["shared"] = "0"
+                elif record.shared == 1:
+                    job_info["shared"] = "1"
+                elif record.shared == 2:
+                    job_info["shared"] = "USER"
+                else:
+                    job_info["shared"] = "OK"
+
+                if record.sockets_per_board == <uint16_t>NO_VAL:
                     job_info["sockets_per_board"] = "not_specified"
                 else:
-                    job_info["sockets_per_board"] = self._job_info_ptr.job_array[i].sockets_per_board
+                    job_info["sockets_per_board"] = record.sockets_per_board
 
 
-                if self._job_info_ptr.job_array[i].sockets_per_node == <uint16_t>NO_VAL:
+                if record.sockets_per_node == <uint16_t>NO_VAL:
                     job_info["sockets_per_node"] = "not_specified"
                 else:
-                    job_info["sockets_per_node"] = self._job_info_ptr.job_array[i].sockets_per_node
+                    job_info["sockets_per_node"] = record.sockets_per_node
 
-                job_info["start_time"] = self._job_info_ptr.job_array[i].start_time
-                job_info["submit_time"] = self._job_info_ptr.job_array[i].submit_time
-                if self._job_info_ptr.job_array[i].suspend_time:
-                    job_info["suspend_time"] = self._job_info_ptr.job_array[i].suspend_time
+                job_info["start_time"] = record.start_time
+
+                if record.batch_flag:
+                    job_array = <job_info_t*>&self._job_info_ptr.job_array[i]
+                    slurm_get_job_stderr(tmp_line,
+                                         sizeof(tmp_line),
+                                         job_array)
+                    job_info["stderr"] = tmp_line
+
+                    slurm_get_job_stdin(tmp_line,
+                                        sizeof(tmp_line),
+                                        job_array)
+                    job_info["stdin"] = tmp_line
+
+                    slurm_get_job_stdout(tmp_line,
+                                         sizeof(tmp_line),
+                                         job_array)
+                    job_info["stdout"] = tmp_line
+                else:
+                    job_info["stderr"] = None
+                    job_info["stdin"] = None
+                    job_info["stdout"] = None
+
+                job_info["start_time"] = record.start_time
+
+                job_info["submit_time"] = record.submit_time
+                if record.suspend_time:
+                    job_info["suspend_time"] = record.suspend_time
                 else:
                     job_info["suspend_time"] = None
 
-                if self._job_info_ptr.job_array[i].threads_per_core == <uint16_t>NO_VAL:
+                if record.threads_per_core == <uint16_t>NO_VAL:
                     job_info["threads_per_core"] = "not_specified"
                 else:
-                    job_info["threads_per_core"] = self._job_info_ptr.job_array[i].threads_per_core
+                    job_info["threads_per_core"] = record.threads_per_core
 
-                if self._job_info_ptr.job_array[i].time_limit == NO_VAL:
+                if record.time_limit == NO_VAL:
                     job_info["time_limit"] = "Partition_Limit"
                 else:
-                    job_info["time_limit"] = self._job_info_ptr.job_array[i].time_limit
+                    job_info["time_limit"] = record.time_limit
 
-                if self._job_info_ptr.job_array[i].time_min == 0:
+                if record.time_min == 0:
                     job_info["time_min"] = None
                 else:
-                    job_info["time_min"] = self._job_info_ptr.job_array[i].time_min
+                    job_info["time_min"] = record.time_min
 
-                job_info["user_name"] = getpwuid(self._job_info_ptr.job_array[i].user_id)[0]
+                job_info["user_name"] = getpwuid(record.user_id)[0]
+                # TODO: split into list of strings to catch arguments
+                job_info["workdir"] = strOrNone(record.work_dir)
 
 
 
-                self._job_dict[self._job_info_ptr.job_array[i].job_id] = job_info
+                self._job_dict[record.job_id] = job_info
 
             # Clean up
             slurm_free_job_info_msg(self._job_info_ptr)

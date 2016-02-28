@@ -1236,7 +1236,7 @@ cdef class Job:
         uint16_t _show_flags
         dict _job_dict
 
-    cpdef get_job(self, uint32_t _jobid=?)
+    cpdef get_job(self, uint32_t jobid)
     cpdef get_jobs(self)
 
 cdef class Conf:
