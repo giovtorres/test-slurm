@@ -11,6 +11,8 @@ General
 - declare cpdef functions in .pxd file
 - change all 0's to SLURM_SUCCESS
 - change strOrNone to return None instead of [] or {}
+- import RTLD_GLOBAL from ctypes instead of DL (Py3 compatible)
+- c_string_type Unicode at the top?
 
 
 Node
