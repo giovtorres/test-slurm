@@ -4,7 +4,7 @@
 
 from __future__ import print_function, division, unicode_literals
 
-from libc.stdint cimport int64_t, uint16_t, uint32_t, uint64_t
+from libc.stdint cimport int64_t, uint8_t, uint16_t, uint32_t, uint64_t
 from libc.stdlib cimport free
 from grp import getgrgid
 from pwd import getpwuid
@@ -341,24 +341,64 @@ cdef class Job:
                 job_info["account"] = strOrNone(record.account)
                 job_info["alloc_node"] = record.alloc_node
                 job_info["alloc_sid"] = record.alloc_sid
-                # array_job_id
-                # array_task_str/array_task_id
+
+                if record.array_job_id:
+                    if record.array_task_str:
+                        job_info["array_job_id"] = record.array_job_id
+                        job_info["array_task_str"] = record.array_task_str
+                        job_info["array_task_id"] = None
+                    else:
+                        job_info["array_job_id"] = record.array_job_id
+                        job_info["array_task_str"] = None
+                        job_info["array_task_id"] = record.array_task_id
+                else:
+                    job_info["array_job_id"] = None
+                    job_info["array_task_str"] = None
+                    job_info["array_task_id"] = None
+
                 job_info["batch_flag"] = record.batch_flag
                 job_info["batch_host"] = strOrNone(record.batch_host)
+                job_info["batch_script"] = strOrNone(record.batch_script)
 
                 if record.boards_per_node == <uint16_t>NO_VAL:
                     job_info["boards_per_node"] = "not_specified"
                 else:
                     job_info["boards_per_node"] = record.boards_per_node
 
+                job_info["burst_buffer"] = strOrNone(record.burst_buffer)
                 job_info["command"] = strOrNone(record.command)
                 job_info["comment"] = strOrNone(record.comment)
                 job_info["contiguous"] = record.contiguous
+
+                if record.core_spec == <uint16_t>NO_VAL:
+                    job_info["core_spec"] = "not_specified"
+                    job_info["thread_spec"] = None
+                elif record.core_spec & CORE_SPEC_THREAD:
+                    job_info["thread_spec"] = record.core_spec & (~CORE_SPEC_THREAD)
+                    job_info["core_spec"] = None
+                else:
+                    job_info["core_spec"] = record.core_spec
+                    job_info["thread_spec"] = None
 
                 if record.cores_per_socket == <uint16_t>NO_VAL:
                     job_info["cores_per_socket"] = "not_specified"
                 else:
                     job_info["cores_per_socket"] = record.cores_per_socket
+
+                if record.cpu_freq_gov == NO_VAL:
+                    job_info["cpu_freq_gov"] = None
+                else:
+                    job_info["cpu_freq_gov"] = record.cpu_freq_gov
+
+                if record.cpu_freq_min == NO_VAL:
+                    job_info["cpu_freq_min"] = None
+                else:
+                    job_info["cpu_freq_min"] = record.cpu_freq_min
+
+                if record.cpu_freq_max == NO_VAL:
+                    job_info["cpu_freq_max"] = None
+                else:
+                    job_info["cpu_freq_max"] = record.cpu_freq_max
 
                 # core_spec
                 # thread_spec
@@ -390,6 +430,7 @@ cdef class Job:
                 job_info["gres"] = listOrNone(record.gres)
                 job_info["group_name"] = getgrgid(record.group_id)[0]
                 job_info["job_id"] = record.job_id
+                job_info["job_name"] = record.name
                 job_info["job_state"] = slurm_job_state_string(record.job_state)
                 job_info["licenses"] = listOrNone(record.licenses)
 
@@ -432,6 +473,7 @@ cdef class Job:
 
                 job_info["qos"] = strOrNone(record.qos)
                 job_info["partition"] = record.partition
+                job_info["power"] = power_flags_str(record.power_flags)
 
                 if record.preempt_time == 0:
                     job_info["preempt_time"] = None
@@ -448,6 +490,7 @@ cdef class Job:
                 job_info["reboot"] = record.reboot
 
                 job_info["req_nodelist"] = strOrNone(record.req_nodes)
+                job_info["req_switch"] = record.req_switch
                 job_info["requeue"] = record.requeue
                 job_info["resize_time"] = record.resize_time
                 job_info["restarts"] = record.restart_cnt
@@ -480,6 +523,8 @@ cdef class Job:
                     job_info["shared"] = "USER"
                 else:
                     job_info["shared"] = "OK"
+
+                job_info["sicp"] = record.sicp_mode
 
                 if record.sockets_per_board == <uint16_t>NO_VAL:
                     job_info["sockets_per_board"] = "not_specified"
@@ -540,6 +585,7 @@ cdef class Job:
 
                 job_info["user_name"] = getpwuid(record.user_id)[0]
                 # TODO: split into list of strings to catch arguments
+                job_info["wait_for_switch"] = record.wait4switch
                 job_info["workdir"] = strOrNone(record.work_dir)
 
 

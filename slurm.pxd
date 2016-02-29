@@ -506,6 +506,8 @@ cdef extern from "slurm/slurm.h" nogil:
     long int MEM_PER_CPU
     int SHARED_FORCE
 
+    int SLURM_POWER_FLAGS_LEVEL
+
     # PROTOCOL DATA STRUCTURE DEFINITIONS
     ctypedef struct dynamic_plugin_data_t:
         void     *data
@@ -535,6 +537,8 @@ cdef extern from "slurm/slurm.h" nogil:
         time_t new_job_time
         uint16_t state
         uint64_t time_usec
+
+    int CORE_SPEC_THREAD
 
     ctypedef struct node_info_t:
         char *arch
@@ -1141,15 +1145,27 @@ cdef extern from "slurm/slurm_errno.h" nogil:
 cdef extern void slurm_free_stats_response_msg (stats_info_response_msg_t *msg)
 cdef extern void *slurm_xmalloc(size_t, bool, const char *, int, const char *)
 cdef extern void slurm_xfree(void **, const char *, int, const char *)
+
 cdef extern char *slurm_node_state_string(uint32_t inx)
 cdef extern char *slurm_job_state_string(uint32_t inx)
 cdef extern char *slurm_job_reason_string(job_state_reason inx)
+
+cdef inline char *power_flags_str(uint16_t power_flags):
+    # not externalized
+    if power_flags & SLURM_POWER_FLAGS_LEVEL:
+        return "LEVEL"
+    else:
+        return ""
 
 #cdef inline void* xmalloc(size_t __sz):
 #    return slurm_xmalloc(__sz, True,  __FILE__, __LINE__, __FUNCTION__)
 #
 #cdef inline xfree (void *__p):
 #    return slurm_xfree(<void**>&(__p), __FILE__, __LINE__, __FUNCTION__)
+
+#
+# Defined node states
+#
 
 cdef inline IS_NODE_ALLOCATED(node_info_t _X):
     return (_X.node_state & NODE_STATE_BASE) == NODE_STATE_ALLOCATED
