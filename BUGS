@@ -10,3 +10,8 @@ src/scontrol/update_node.c
 
 
 3. slurm.get_nodes() leaks memory when slurmctld is stopped.  (not sure if this is SLURM or me.)
+
+4. job_ptr->batch_script doesn't work in job_info.c, but works in scontrol show job
+
+
+
