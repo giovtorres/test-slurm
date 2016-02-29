@@ -3,8 +3,9 @@ General
 
 - capitalize classes (PEP8)
 - 4 spaces, no tabs (PEP8)
-- use __future__ unicode literals and not do u'' prefixes (Py3 compat)
-- remove implied cdef extern from declaration file
+- use __future__ unicode literals and not do u'' prefixes (Py3 compatible)
+- use others from __future__ like print function and division (Py3 compatible)
+- remove implied cdef extern from declaration file (style)
 - move includes from .pxi to .pxd, leaving only needed ones like NODE STATES
 - single namespace
 - declare cpdef functions in .pxd file
