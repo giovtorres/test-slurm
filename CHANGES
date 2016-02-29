@@ -13,6 +13,7 @@ General
 - change strOrNone to return None instead of [] or {}
 - import RTLD_GLOBAL from ctypes instead of DL (Py3 compatible)
 - c_string_type Unicode at the top?
+- single vs double quotes
 
 
 Node
