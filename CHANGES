@@ -15,9 +15,12 @@ General
 - c_string_type Unicode at the top?
 - single vs double quotes
 
+- model API after PERL API?
+- variable names should match scontrol output variable names
 
 Node
 ====
 
 - remove global slurm_update_node and put in node class
 - node features as a list of strings
+
